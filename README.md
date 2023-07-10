@@ -3,6 +3,7 @@ VetoPlugin For Maniacontrol (TM/SM)
 
 ## Available Commands
 //startveto
+//cancelveto
 
 
 ## Call veto from another plugin
@@ -17,5 +18,8 @@ Call startVeto method :
 
 ```php
 if($this->maniaControl->getPluginManager()->isPluginActive(self::VETO_PLUGIN))
-    $this->maniaControl->getPluginManager()->getPlugin(self::VETO_PLUGIN)->remoteStartVeto("-ABBAA+ABX");
+    $this->maniaControl->getPluginManager()->getPlugin(self::VETO_PLUGIN)->startVeto("-ABBAA+ABX");
+
+if($this->maniaControl->getPluginManager()->isPluginActive(self::VETO_PLUGIN))
+    $this->maniaControl->getPluginManager()->getPlugin(self::VETO_PLUGIN)->cancelVeto();
 ```
