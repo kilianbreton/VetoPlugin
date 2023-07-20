@@ -2,7 +2,7 @@
 VetoPlugin For Maniacontrol (TM/SM)
 
 ## Available Commands
-//startveto
+//startveto and /startveto
 //cancelveto
 
 
@@ -14,7 +14,7 @@ Add constant to your plugin :
 const VETO_PLUGIN = "Ankou\\VetoManagerPlugin";
 ```
 
-Call startVeto method : 
+Call startVeto and cancelVeto methods : 
 
 ```php
 if($this->maniaControl->getPluginManager()->isPluginActive(self::VETO_PLUGIN))
@@ -22,4 +22,22 @@ if($this->maniaControl->getPluginManager()->isPluginActive(self::VETO_PLUGIN))
 
 if($this->maniaControl->getPluginManager()->isPluginActive(self::VETO_PLUGIN))
     $this->maniaControl->getPluginManager()->getPlugin(self::VETO_PLUGIN)->cancelVeto();
+```
+
+
+Register callback : 
+
+```php
+if($this->maniaControl->getPluginManager()->isPluginActive(self::VETO_PLUGIN))
+    $this->maniaControl->getPluginManager()->getPlugin(self::VETO_PLUGIN)->registerOnVetoFinishedCallBack($this, "myCallbackMethod");
+
+
+//....
+
+public function myCallbackMethod($json)
+{
+    var_dump($json);
+    //...
+}
+
 ```

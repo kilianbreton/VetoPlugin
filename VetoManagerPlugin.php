@@ -10,32 +10,26 @@ use FML\Controls\Label;
 use \ManiaControl\Logger;
 use ManiaControl\Maps\Map;
 use ManiaControl\ManiaControl;
-use FML\Script\Features\MapInfo;
 use ManiaControl\Players\Player;
 use ManiaControl\Plugins\Plugin;
-use ManiaControl\Utils\Formatter;
-use ManiaControl\Settings\Setting;
-use FML\Controls\Labels\Label_Text;
-use ManiaControl\Callbacks\Callbacks;
-use FML\Script\Features\ActionTrigger;
 use ManiaControl\Players\PlayerManager;
-use ManiaControl\Files\AsyncHttpRequest;
 use FML\Controls\Quads\Quad_Icons64x64_1;
+use FML\Controls\Quads\Quad_Icons64x64_2;
 use ManiaControl\Settings\SettingManager;
+use FML\Controls\Quads\Quad_BgsPlayerCard;
+use FML\Controls\Quads\Quad_Icons128x32_1;
+use ManiaControl\Callbacks\TimerListener; 
 use ManiaControl\Commands\CommandListener;
 use ManiaControl\Callbacks\CallbackManager;
 use ManiaControl\Callbacks\CallbackListener;
-use ManiaControl\Admin\AuthenticationManager;
 use ManiaControl\Manialinks\ManialinkManager;
-use ManiaControl\Configurator\GameModeSettings;
-use ManiaControl\Communication\CommunicationAnswer;
+use ManiaControl\Manialinks\SidebarMenuManager;
+use FML\Controls\Quads\Quad_UIConstruction_Buttons;
+use FML\ManiaLinks;
 use ManiaControl\Communication\CommunicationListener;
-use ManiaControl\Callbacks\TimerListener; // for pause
+use ManiaControl\Manialinks\SidebarMenuEntryListener;
 use ManiaControl\Manialinks\ManialinkPageAnswerListener;
-use Maniaplanet\DedicatedServer\InvalidArgumentException;
-use ManiaControl\Callbacks\Structures\ShootMania\OnShootStructure;
-use ManiaControl\Callbacks\Structures\TrackMania\OnScoresStructure;
-use ManiaControl\Callbacks\Structures\Common\StatusCallbackStructure;
+
 
 
 abstract class StringParserState
@@ -65,28 +59,40 @@ class VetoSequenceNode
  * @author  Ankou
  * @version 0.2
  */
-class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListener, CommunicationListener, Plugin, ManialinkPageAnswerListener
+class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListener, CommunicationListener, Plugin, ManialinkPageAnswerListener, SidebarMenuEntryListener
 {
     const ID      = 185;
-    const VERSION = 0.2;
+    const VERSION = 0.3;
     const NAME    = 'VetoManager';
     const AUTHOR  = 'Ankou';
 
     //Debug
     const __DEBUG__CLICK = false;
-
+    const __DEBUG__COMMAND = false;
 
     //Settings
-    const SETTING_LIST_X = "List pos X";
-    const SETTING_LIST_Y = "List pos Y";
-    const SETTING_STANDALONE = "Is standAlone";
-    const SETTING_VETOSTRING = "Veto string (only for standAlone)";
+    const SETTING_LIST_X        = "List pos X";
+    const SETTING_LIST_Y        = "List pos Y";
+    const SETTING_LIST_WIDTH    = "List width";
+    const SETTING_LIST_HEIGHT   = "List height";
+    const SETTING_STANDALONE    = "Is standAlone";
+    const SETTING_VETOSTRING    = "Veto string (only for standAlone)";
+    const SETTING_ALLOWUSERS    = "Allow non-admin to start veto";
+    const SETTING_BACKSTYLE     = "Backgroud Style";
+    const SETTING_BACKSUBSTYLE  = "Backgroud SubStyle";
+    const SETTING_ENABLELOGS    = "Log veto result";
+
+
     protected $isStandAlone = false;
+    protected $allowUsers = true;
+    protected $enableLogs = false;
     protected $vetoString = "";
-    protected $listX = -80;
+    protected $listX = -75;
     protected $listY = 70;
-
-
+    protected $listWidth = 150;
+    protected $listHeight = 120;
+    protected $backStyle = "";
+    protected $backSubStyle = "";
 
     //ManiaLink
     const ML_VETOLIST_ID        = "VetoManager.List";
@@ -94,15 +100,23 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
     const ACT_VETO_MAXIMISE     = "VetoManager.Maximise";
     const ACT_VETO_MINIMISE     = "VetoManager.Minimise";
     const ACT_VETOLIST_SELECT   = "VetoManager.List.";
+    const ACT_VETO_START        = "VetoManager.Start";
+
+    const ICON_MENU             = "VetoManager.MenuIcon";
+    const MLID_ICON             = "VetoManager.IconWidgetId";
 
 
     protected $maxNbBan = -1;
     protected $maxNbPick = -1;
     protected $vetoSequence = [];
     protected $currentVetoNodeIndex = -1;
-    protected $banList = [];
-    protected $pickList = [];
+    protected $vetoList = [];
     protected $windowStateByPlayer = [];    //["login" => true/false] (true = maximised)
+    protected $availableMaps = [];
+    protected $vetoStarted = false;
+    protected $onVetoFinishedListeners = [];
+
+
 
 
     /** @var ManiaControl $maniaControl */
@@ -117,35 +131,60 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
     {
         $this->maniaControl = $maniaControl;
 
+        //settings
+        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_STANDALONE, true);
+        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_ALLOWUSERS, true);
+        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_ENABLELOGS, false);
+        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_VETOSTRING, "-A-BB-AA-B+B+A+X", "allowed chars : -+ABX (- = Ban; + = Pick; A = Team A; B = Team B; X = Auto last map)");
+        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_LIST_X, -75);
+        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_LIST_Y, 70);
+        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_LIST_WIDTH, 150);
+        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_LIST_HEIGHT, 120);
+        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_BACKSTYLE, "Bgs1"); 
+        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_BACKSUBSTYLE, "BgWindow2");
+
+        
+        $this->updateSettings();
+
+
         //ManiaLink callbacks
         $this->maniaControl->getManialinkManager()->registerManialinkPageAnswerListener(self::ACT_VETO_MAXIMISE, $this, 'handleVetoMaximise');
         $this->maniaControl->getManialinkManager()->registerManialinkPageAnswerListener(self::ACT_VETO_MINIMISE, $this, 'handleVetoMinimise');
+        $this->maniaControl->getManialinkManager()->registerManialinkPageAnswerListener(self::ACT_VETO_START, $this, 'handleVetoStart');
+        $this->maniaControl->getCallbackManager()->registerCallbackListener(CallbackManager::CB_MP_PLAYERMANIALINKPAGEANSWER, $this, 'handleManialinkPageAnswer');
+
+    
 
         //CallBacks
         $this->maniaControl->getCallbackManager()->registerCallbackListener(SettingManager::CB_SETTING_CHANGED, $this, 'updateSettings');
-        $this->maniaControl->getCallbackManager()->registerCallbackListener(CallbackManager::CB_MP_PLAYERMANIALINKPAGEANSWER, $this, 'handleManialinkPageAnswer');
+		$this->maniaControl->getCallbackManager()->registerCallbackListener(PlayerManager::CB_PLAYERCONNECT, $this, 'handlePlayerConnect');
+
 
         //Commands
+        $this->maniaControl->getCommandManager()->registerCommandListener("startveto", $this, "onCommandStartVeto", false, "Start the veto");
         $this->maniaControl->getCommandManager()->registerCommandListener("startveto", $this, "onCommandStartVeto", true, "Start the veto");
         $this->maniaControl->getCommandManager()->registerCommandListener("cancelveto", $this, "onCommandCancelVeto", true, "Cancel the veto");
+        if(self::__DEBUG__COMMAND)
+            $this->maniaControl->getCommandManager()->registerCommandListener("randomveto", $this, "onCommandRandomVeto", true, "Random a veto turn");
 
-
-        //settings
-        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_STANDALONE, true);
-        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_VETOSTRING, "-A-BB-AA-B+B+A+X", "allowed chars : -+ABX (- = Ban; + = Pick; A = Team A; B = Team B; X = Auto last map)");
-        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_LIST_X, -80);
-        $this->maniaControl->getSettingManager()->initSetting($this, self::SETTING_LIST_Y, 70);
-
-
-        $this->updateSettings();
+        
+        
     }
 
     public function updateSettings()
     {
         $this->isStandAlone = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_STANDALONE);
-        $this->vetoString = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_VETOSTRING);
-        $this->listX = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_LIST_X);
-        $this->listY = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_LIST_Y);
+        $this->allowUsers   = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_ALLOWUSERS);
+        $this->enableLogs   = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_ENABLELOGS);
+        $this->vetoString   = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_VETOSTRING);
+        $this->listX        = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_LIST_X);
+        $this->listY        = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_LIST_Y);
+        $this->listWidth    = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_LIST_WIDTH);
+        $this->listHeight   = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_LIST_HEIGHT);
+        $this->backStyle    = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_BACKSTYLE);
+        $this->backSubStyle = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_BACKSUBSTYLE);
+        
+
         if ($this->isStandAlone)
         {
             if (!($this->validateString($this->vetoString, $message)))
@@ -153,28 +192,52 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
                 $this->maniaControl->getChat()->sendErrorToAdmins("Invalid veto string '{$this->vetoString}' ($message)");
             }
         }
+
+        if($this->allowUsers)
+        {
+            $this->maniaControl->getCommandManager()->enableCommand("startveto", false, $this);
+            $this->maniaControl->getManialinkManager()->getSidebarMenuManager()->addMenuEntry(SidebarMenuManager::ORDER_PLAYER_MENU + 5, self::ICON_MENU, $this, 'showIcon');
+        }
+        else
+        {
+            $this->maniaControl->getCommandManager()->disableCommand("startveto", false, $this);
+            $this->maniaControl->getManialinkManager()->getSidebarMenuManager()->deleteMenuEntry($this, self::ICON_MENU);
+            $this->maniaControl->getManialinkManager()->hideManialink(self::ICON_MENU);
+            $this->maniaControl->getManialinkManager()->hideManialink(self::MLID_ICON);
+        }
     }
-
-
-
-
-  
-
 
     /**
      * Execute a click on list (pick or ban)
      */
     protected function executeAction($player, $map)
     {
+        if($map == "RANDOM")
+        {
+            $val = rand(0, count($this->availableMaps));
+            $map = $this->availableMaps[$val];
+            var_dump($this->availableMaps);
+            echo "\n";
+            unset($this->availableMaps[$val]);
+            $this->availableMaps = array_values($this->availableMaps);
+            var_dump($this->availableMaps);
+            echo "\n";
+
+        }
+
         if ($this->vetoSequence[$this->currentVetoNodeIndex]->pick)
         {
-            echo "Pick : $map \n";
-            $this->pickList[] = $map;
+            $this->vetoList[$map] = [
+                "team" => $this->vetoSequence[$this->currentVetoNodeIndex]->team,
+                "type" => "pick"
+            ];
         }
         else
         {
-            echo "Ban : $map \n";
-            $this->banList[] = $map;
+            $this->vetoList[$map] = [
+                "team" => $this->vetoSequence[$this->currentVetoNodeIndex]->team,
+                "type" => "ban"
+            ];
         }
         $this->maniaControl->getManialinkManager()->hideManialink(self::ML_VETOLIST_ID);
         $this->maniaControl->getManialinkManager()->hideManialink(self::ML_VETOMINIMISED_ID);
@@ -184,8 +247,33 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
         }
         else
         {
+            $this->vetoStarted = false;
+            $resultJson = $this->buildVetoResult();
+            if($this->enableLogs)
+                $this->logVeto($resultJson);
+    
+            $this->triggerOnVetoFinished($resultJson);
             $this->setMapQueue();
         }
+    }
+
+    protected function buildVetoResult()
+    {
+        $data = [];
+        foreach($this->vetoList as $map => $infos)
+        {
+            $data[] = (object)[
+                "map"   => $map,
+                "type"  => $infos["type"],
+                "team"  => $infos["team"],
+            ];
+        }
+        return json_encode($data);
+    }
+
+    protected function logVeto($json)
+    {
+        Logger::log($json);
     }
 
     /**
@@ -193,24 +281,41 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
      */
     public function setMapQueue()
     {
-        if(count($this->pickList) > 0)
+        $pickList = $this->getPickList();
+        if(count($pickList) > 0)
         {
             $this->maniaControl->getMapManager()->getMapQueue()->clearMapQueue();
             $start = 0;
-            if($this->maniaControl->getMapManager()->getCurrentMap()->uid == $this->pickList[0])
+            if($this->maniaControl->getMapManager()->getCurrentMap()->uid == $pickList[0])
             {
                 $start = 1;
                 $this->maniaControl->getClient()->restartMap();
             }
-            for($i = $start; $i < count($this->pickList); ++$i)
+            for($i = $start; $i < count($pickList); ++$i)
             {
-                $this->maniaControl->getMapManager()->getMapQueue()->serverAddMapToMapQueue($this->pickList[$i]);
+                $this->maniaControl->getMapManager()->getMapQueue()->serverAddMapToMapQueue($pickList[$i]);
             }
             if($start == 0)
             {
                 $this->maniaControl->getClient()->nextMap();
             }
         }
+    }
+
+    /**
+     * @return array
+     */
+    protected function getPickList()
+    {
+        $result = [];
+        foreach($this->vetoList as $map => $data)
+        {
+            if($data["type"] == "pick")
+            {
+                $result[] = $map;
+            }
+        }
+        return $result;
     }
 
 
@@ -306,8 +411,12 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
         $this->vetoSequence = $tempSequence;
         $this->maxNbBan = $strNbBan;
         $this->maxNbPick = $strNbPick;
-        $this->banList = [];
-        $this->pickList = [];
+        $this->vetoList = [];
+        $this->availableMaps = [];
+        foreach($this->maniaControl->getMapManager()->getMaps() as $map)
+        {
+            $this->availableMaps[] = $map->uid;
+        }
 
         return true;
     }
@@ -315,6 +424,12 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
     //=================================================================================================================================================================
     //==[OnCommands]===============================================================================================================================================================
     //=================================================================================================================================================================
+
+    public function onCommandRandomVeto(array $chatCallback, Player $player)
+    {
+        if($this->vetoStarted)
+            $this->executeAction($player, "RANDOM");
+    }
 
     public function onCommandStartVeto(array $chatCallback, Player $player)
     {
@@ -324,6 +439,11 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
 
     public function startVeto($vetoString)
     {
+        if($this->vetoStarted)
+        {
+            $this->maniaControl->getChat()->sendErrorToAdmins("Veto already started");
+            return;
+        }
         $message = "";
         if (!($this->validateString($vetoString, $message)))
         {
@@ -331,10 +451,13 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
         }
         if (count($this->vetoSequence) > 0)
         {
+            if(self::__DEBUG__CLICK)
+                $this->maniaControl->getChat()->sendErrorToAdmins("VetoManager is in Debug mode !!");
+
             $this->currentVetoNodeIndex = 0;
             $this->windowStateByPlayer = [];    //reset window state
-            $this->pickList = [];
-            $this->banList = [];
+            $this->vetoList = [];
+            $this->vetoStarted = true;
             $this->showManialink($this->vetoSequence[$this->currentVetoNodeIndex]);
         }
     }
@@ -347,9 +470,8 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
     public function cancelVeto()
     {
         $this->currentVetoNodeIndex = 0;
-        $this->windowStateByPlayer = [];    //reset window state
-        $this->pickList = [];
-        $this->banList = [];
+        $this->vetoStarted = false;
+        $this->vetoList = [];
         $this->maniaControl->getManialinkManager()->hideManialink(self::ML_VETOLIST_ID);
         $this->maniaControl->getManialinkManager()->hideManialink(self::ML_VETOMINIMISED_ID);
         $this->windowStateByPlayer = []; //reset window state
@@ -448,8 +570,8 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
 
         $backgroundQuad = new Quad();
         $frame->addChild($backgroundQuad);
-        $backgroundQuad->setSize(150, 120);
-        $backgroundQuad->setStyles("Bgs1", "BgHealthBar");
+        $backgroundQuad->setSize($this->listWidth, $this->listHeight);
+        $backgroundQuad->setStyles($this->backStyle, $this->backSubStyle);
         $backgroundQuad->setPosition($this->listX, $this->listY);  //-80, 70
         $backgroundQuad->setAlign("left", "top");
         $backgroundQuad->setZ(ManialinkManager::MAIN_MANIALINK_Z_VALUE + 1);
@@ -457,7 +579,7 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
         $miniLabel = new Label();
         $frame->addChild($miniLabel);
         $miniLabel->setTextSize(1);
-        $miniLabel->setPosition(($this->listX + 150) - 2, $this->listY - 2);
+        $miniLabel->setPosition(($this->listX + $this->listWidth) - 2, $this->listY - 2);
         $miniLabel->setAlign("right", "top");
         $miniLabel->setZ(ManialinkManager::MAIN_MANIALINK_Z_VALUE + 2);
         $miniLabel->setText('$o$w-');
@@ -514,20 +636,22 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
             $frame->addChild($tmpLabel);
 
             $tmpButton = new Label();
-            $tmpButton->setPosition($this->listX + 117, ($this->listY - 7) - ($i * 10));
+            $tmpButton->setPosition($this->listX + ($this->listWidth - 33), ($this->listY - 7) - ($i * 10));
             $tmpButton->setSize(4, 8);
             $tmpButton->setStyle("CardButtonMediumS");
             $tmpButton->setZ(ManialinkManager::MAIN_MANIALINK_Z_VALUE + 4);
             $tmpButton->setAlign("left", "right");
-            if (in_array($maps[$i]->uid, $this->banList) || in_array($maps[$i]->uid, $this->pickList))
+            
+            if (key_exists($maps[$i]->uid, $this->vetoList))
             {
-                if (in_array($maps[$i]->uid, $this->banList))
+               // if (key_exists($maps[$i]->uid, $this->banList))
+                if ($this->vetoList[$maps[$i]->uid]["type"] == "ban")
                 {
-                    $tmpButton->setText('$f00Banned');
+                    $tmpButton->setText('$f00Banned by ' . $this->vetoList[$maps[$i]->uid]["team"]);
                 }
                 else
                 {
-                    $tmpButton->setText('$0f0Picked');
+                    $tmpButton->setText('$0f0Picked by ' . $this->vetoList[$maps[$i]->uid]["team"]);
                 }
             }
             else
@@ -553,13 +677,77 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
         }
 
 
+        //Random Button
 
+        $randomButton = new Label();
+        $randomButton->setPosition($this->listX + ($this->listWidth - 33), $this->listY - $this->listHeight + 10);
+        $randomButton->setSize(4, 8);
+        $randomButton->setStyle("CardButtonMediumS");
+        $randomButton->setZ(ManialinkManager::MAIN_MANIALINK_Z_VALUE + 4);
+        $randomButton->setAlign("left", "right");
+        if ($sequenceNode->pick)
+        {
+            $randomButton->setText("Random Pick");
+        }
+        else
+        {
+            $randomButton->setText("Random Ban");
+        }
+        if ($spec)
+        {
+            $randomButton->setTextPrefix('$777');
+        }
+        else
+        {
+            $randomButton->setAction(self::ACT_VETOLIST_SELECT . "RANDOM");
+        }
+        $frame->addChild($randomButton);
         //$this->maniaControl->getManialinkManager()->sendManialink($manialink, $login);
         if ($login != null)
         {
             $this->maniaControl->getManialinkManager()->sendManialink($manialink, $login);
         }
     }
+
+    public function showIcon($login = false)
+    {
+        $pos               = $this->maniaControl->getManialinkManager()->getSidebarMenuManager()->getEntryPosition(self::ICON_MENU);
+		$width             = $this->maniaControl->getSettingManager()->getSettingValue($this->maniaControl->getManialinkManager()->getSidebarMenuManager(), SidebarMenuManager::SETTING_MENU_ITEMSIZE);
+		$quadStyle         = $this->maniaControl->getManialinkManager()->getStyleManager()->getDefaultQuadStyle();
+		$quadSubstyle      = $this->maniaControl->getManialinkManager()->getStyleManager()->getDefaultQuadSubstyle();
+		$itemMarginFactorX = 1.3;
+		$itemMarginFactorY = 1.2;
+
+		$itemSize = $width;
+
+		$maniaLink = new ManiaLink(self::MLID_ICON);
+
+		//Custom Vote Menu Iconsframe
+		$frame = new Frame();
+		$maniaLink->addChild($frame);
+		$frame->setPosition($pos->getX(), $pos->getY());
+		$frame->setZ(ManialinkManager::MAIN_MANIALINK_Z_VALUE);
+
+		$backgroundQuad = new Quad();
+		$frame->addChild($backgroundQuad);
+		$backgroundQuad->setSize($width * $itemMarginFactorX, $itemSize * $itemMarginFactorY);
+		$backgroundQuad->setStyles($quadStyle, $quadSubstyle);
+
+		$iconFrame = new Frame();
+		$frame->addChild($iconFrame);
+
+		$iconFrame->setSize($itemSize, $itemSize);
+		$itemQuad = new Quad_Icons64x64_1();
+		$itemQuad->setSubStyle($itemQuad::SUBSTYLE_RestartRace);
+		$itemQuad->setSize($itemSize, $itemSize);
+		$iconFrame->addChild($itemQuad);
+        $itemQuad->setAction(self::ACT_VETO_START);
+		
+		// Send manialink
+		$this->maniaControl->getManialinkManager()->sendManialink($maniaLink, $login);
+    }
+
+
 
     //=================================================================================================================================================================
     //==[Handle ManiaLink]=============================================================================================================================================
@@ -572,6 +760,7 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
         $this->windowStateByPlayer[$player->login] = true;
         $this->showManialink($this->vetoSequence[$this->currentVetoNodeIndex], $player);
     }
+
     public function handleVetoMinimise(array $callback, Player $player)
     {
         $this->maniaControl->getManialinkManager()->hideManialink(self::ML_VETOLIST_ID, $player);
@@ -579,6 +768,12 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
         $this->windowStateByPlayer[$player->login] = false;
         $this->showManialink($this->vetoSequence[$this->currentVetoNodeIndex], $player, false);
     }
+
+    public function handleVetoStart(array $callback, Player $player)
+    {
+        $this->startVeto($this->vetoString);
+    }
+
     public function handleManialinkPageAnswer(array $callback)
     {
         $actionId       = $callback[1][2];
@@ -600,6 +795,33 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
        
     }
 
+    //=================================================================================================================================================================
+    //==[Handle Callback]==============================================================================================================================================
+    //=================================================================================================================================================================
+
+
+    public function handlePlayerConnect(Player $player) {
+		$this->showIcon($player->login);
+	}
+
+
+
+    //=================================================================================================================================================================
+    //==[Remote Plugin Callback]=======================================================================================================================================
+    //=================================================================================================================================================================
+
+    public function registerOnVetoFinishedCallBack(Plugin $listener, $method)
+    {
+        $this->onVetoFinishedListeners[] = [$listener, $method];
+    }
+
+    protected function triggerOnVetoFinished($json)
+    {
+        foreach($this->onVetoFinishedListeners as $callback)
+        {
+            call_user_func_array($callback, [$json]);
+        }
+    }
 
 
     /**
