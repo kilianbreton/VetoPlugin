@@ -1,5 +1,5 @@
 # VetoPlugin
-VetoPlugin For Maniacontrol (TM/SM)
+VetoPlugin For Maniacontrol (TrackMania & ShootMania)
 
 ## Available Commands
 - //startveto      (for admin)
