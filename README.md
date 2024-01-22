@@ -14,7 +14,7 @@ This plugin allows you to manage map vetos and drafts for your competitions matc
 - Manually by copying files into maniacontrol/plugins/
 
 ## Download 
-- [From ManiaControl]([https://link-url-here.org](https://maniacontrol.com/plugins/185))
+- [From ManiaControl](https://maniacontrol.com/plugins/185)
 
 
 
