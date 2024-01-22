@@ -2,8 +2,9 @@
 VetoPlugin For Maniacontrol (TM/SM)
 
 ## Available Commands
-//startveto and /startveto
-//cancelveto
+- //startveto      (for admin)
+- /startveto       (if non-admin allowed)
+- //cancelveto     (for admin)
 
 
 ## Call veto from another plugin
