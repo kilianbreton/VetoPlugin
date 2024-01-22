@@ -1,11 +1,21 @@
 # VetoManagerPlugin
 VetoPlugin For Maniacontrol (TrackMania & ShootMania)
+
 This plugin allows you to manage map vetos and drafts for your competitions matches
 
 ## Available Commands
 - //startveto      (for admin)
 - /startveto       (if non-admin allowed)
 - //cancelveto     (for admin)
+
+
+## Installation 
+- From ManiaControl UI
+- Manually by copying files into maniacontrol/plugins/
+
+## Download 
+- [From ManiaControl]([https://link-url-here.org](https://maniacontrol.com/plugins/185))
+
 
 
 ## Call veto from another plugin
