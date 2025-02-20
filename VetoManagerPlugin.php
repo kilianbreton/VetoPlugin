@@ -58,12 +58,12 @@ class VetoSequenceNode
  * VetoManager
  *
  * @author  Ankou
- * @version 0.98
+ * @version 1.4
  */
 class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListener, CommunicationListener, Plugin, ManialinkPageAnswerListener, SidebarMenuEntryListener
 {
     const ID            = 185;
-    const VERSION       = 1.1;
+    const VERSION       = 1.4;
     const NAME          = 'VetoManager';
     const AUTHOR        = 'Ankou';
     const DESCRIPTION   = 'Veto manager, can be connected to other plugins';
@@ -158,6 +158,7 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
     protected $isDebug = self::__DEBUG__CLICK || self::__DEBUG__COMMAND || self::__DEBUG__MINIMIZE;
 
     //ManiaLink
+    const ML_CONFIGURATOR_ID    = "VetoManager.Configurator";
     const ML_VETOLIST_ID        = "VetoManager.List";
     const ML_VETOMINIMIZE_ID    = "VetoManager.Minimized";
     const ML_THUMNAILSGRID_ID   = "VetoManager.ThumbnailsGrid";
@@ -279,6 +280,11 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
 
 
         //Commands
+        $this->maniaControl->getCommandManager()->registerCommandListener("veto", $this, "onCommandVetoAdmin", true, "Veto Commands (admin)");
+        $this->maniaControl->getCommandManager()->registerCommandListener("veto", $this, "onCommandVeto", false, "Veto Commands (/veto help)");
+
+
+        //old commands
         $this->maniaControl->getCommandManager()->registerCommandListener("startveto", $this, "onCommandStartVeto", false, "Start the veto");
         $this->maniaControl->getCommandManager()->registerCommandListener("startveto", $this, "onCommandStartVetoAdmin", true, "Start the veto");
         $this->maniaControl->getCommandManager()->registerCommandListener("cancelveto", $this, "onCommandCancelVeto", true, "Cancel the veto");
@@ -296,7 +302,7 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
     {
         $titlePrefix = $this->maniaControl->getMapManager()->getCurrentMap()->getGame();
         $url = "https://api.mania-exchange.com/{$titlePrefix}/maps/?ids={$string}";
-      
+        $url = "https://{$titlePrefix}.mania.exchange/api/maps/?fields=MapId,MapUid,GbxMapName&uid={$string}";
         $asyncHttpRequest = new AsyncHttpRequest($this->maniaControl, $url);
         $asyncHttpRequest->setContentType(AsyncHttpRequest::CONTENT_TYPE_JSON);
         $maps = $this->thumbnailMaps;
@@ -317,24 +323,22 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
                 return;
             }
 
-            foreach ($mxMapList as $map)
+            foreach ($mxMapList->Results as $map)
             {
                 if ($map)
                 {
-                    $mxMapObject = new MXMapInfo($titlePrefix, $map);
-                    if ($mxMapObject)
-                        array_push($this->thumbnailMaps, $mxMapObject);
+                 //   $mxMapObject = new MXMapInfo($titlePrefix, $map);
+                  //  if ($mxMapObject)
+                        array_push($this->thumbnailMaps, $map);
                 }
             }
-            $this->maniaControl->getMapManager()->getMXManager()->updateMapObjectsWithManiaExchangeIds($this->thumbnailMaps);
+        //    $this->maniaControl->getMapManager()->getMXManager()->updateMapObjectsWithManiaExchangeIds($this->thumbnailMaps);
         });
 
         $asyncHttpRequest->getData();
     }
     public function updateSettings()
     {
-      
-
         $this->isStandAlone             = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_STANDALONE);
         $this->allowUsers               = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_ALLOWUSERS);
         $this->enableLogs               = $this->maniaControl->getSettingManager()->getSettingValue($this, self::SETTING_ENABLELOGS);
@@ -704,9 +708,7 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
     {
         $data = [];
         $maps = $this->getAvailableMaps();
-     //   var_dump($maps);
-      //  var_dump($this->vetoList);
-
+   
         foreach ($this->vetoList as $map => $infos)
         {
             if($infos["team"] == "A")
@@ -720,7 +722,8 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
                 $mxId = $mapObj->mx->id;
 
             $data[] = (object)[
-                "map_name"          => $mapObj->name,
+                "map_name"          => $mapObj->rawName,
+                "map_cleanName"     => $mapObj->name,
                 "map_uid"           => $map,
                 "action"            => $infos["type"],
                 "team_letter"       => $infos["team"],
@@ -834,7 +837,6 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
         $this->initMapList();
         $this->initRandomMapList();
 
-  //      $nbMaps = $this->maniaControl->getMapManager()->getMapsCount();
         if(count($this->maps) == $this->maniaControl->getMapManager()->getMapsCount())
         {
             $nbMaps = count($this->maps);
@@ -981,7 +983,6 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
 
     private function getAvailableMaps()
     {
-      //  $maps = $this->maniaControl->getMapManager()->getMaps();
         $maps = $this->maps;
         if($this->showBanned)
             return $maps;
@@ -1010,6 +1011,47 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
     //==[OnCommands]===============================================================================================================================================================
     //=================================================================================================================================================================
  
+
+    public function onCommandVetoAdmin(array $chatCallback, Player $player)
+    {
+        $command = $chatCallback[1][2];
+        $argArray = explode(" ", $command);
+        $this->maniaControl->log(var_export($argArray, true));
+        if(count($argArray) <= 1)
+        {
+            $this->maniaControl->getChat()->sendError("//veto command need args !", $player);
+            return;
+        }
+        switch(strtolower($argArray[1]))
+        {
+            case "start":
+                if ($this->isStandAlone)
+                    $this->startVeto($this->vetoString, $player);
+                break;
+            case "stop":
+                if ($this->isStandAlone)
+                    $this->cancelVeto("", $player);
+                break;
+            case "config":
+                $this->buildConfigManialink($player);
+                break;
+            
+        }
+        
+
+    }
+
+    public function onCommandVeto(array $chatCallback, Player $player)
+    {
+        $command = $chatCallback[1][2];
+        $argArray = explode(" ", $command);
+        if(count($argArray) == 1)
+        {
+            $this->maniaControl->getChat()->sendError("/veto command need args !", $player);
+            return;
+        }
+    }
+
     public function onCommandMultiCall(array $chatCallback, Player $player)
     {
         $this->executeAction($player, "RANDOM");
@@ -1179,6 +1221,52 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
     //=================================================================================================================================================================
     //==[ManiaLink]====================================================================================================================================================
     //=================================================================================================================================================================
+
+
+    public function buildConfigManialink($player)
+    {
+
+        /**
+         * <?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+         * <manialink version="3">
+         *   <frame>
+         *       <quad pos="-140 80" z-index="0" size="280 160" bgcolor="FFFA" style="Bgs1" substyle="BgButtonOff"/>
+         * 	     <quad pos="-138 78" z-index="1" size="57 155" bgcolor="FFFA" style="Bgs1" substyle="BgWindow1"/>
+         *	     <quad pos="-137 77" z-index="2" size="55 12" bgcolor="00FFFFAA" style="Bgs1" substyle="BgTitle" modulatecolor="00FFFFFF"/>
+         *	     <label pos="-110 71" z-index="3" size="53 11" text="Main" halign="center" valign="center"/>
+         *	     <quad pos="-137 64" z-index="2" size="55 12" bgcolor="00FFFFAA" style="Bgs1" substyle="BgCardList" modulatecolor="00FFFFFF"/>
+         *	     <label pos="-110 58.5" z-index="3" size="55 11" text="User Interface" halign="center" valign="center"/>
+         *     </frame>
+         *   </manialink>
+         */
+        $manialink = new ManiaLink(self::ML_CONFIGURATOR_ID);
+
+        $frame = new Frame();
+        $manialink->addChild($frame);
+        $frame->setPosition(0, 0, ManialinkManager::MAIN_MANIALINK_Z_VALUE + 1);
+        $frame->setAlign("left", "top");
+
+        $backgroundQuad = new Quad();
+        $frame->addChild($backgroundQuad);
+        $backgroundQuad->setSize(130, 150);
+        $backgroundQuad->setStyles("Bgs1", "BgButtonOff");
+        $backgroundQuad->setPosition(-100, 70);
+        $backgroundQuad->setAlign("left", "top");
+        $backgroundQuad->setZ(ManialinkManager::MAIN_MANIALINK_Z_VALUE + 1);
+
+        $backgroundQuad = new Quad();
+        $frame->addChild($backgroundQuad);
+        $backgroundQuad->setSize(40, 96);
+        $backgroundQuad->setStyles("Bgs1", "BgWindow1");
+        $backgroundQuad->setPosition(-98, 68);
+        $backgroundQuad->setAlign("left", "top");
+        $backgroundQuad->setZ(ManialinkManager::MAIN_MANIALINK_Z_VALUE + 1);
+
+
+       
+        $this->maniaControl->getManialinkManager()->sendManialink($manialink, $player);
+        
+    }
 
 
     /**
@@ -1417,10 +1505,11 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
      */
     public function getThumbnailLink($map)
     {
+        $prefix = $titlePrefix = $this->maniaControl->getMapManager()->getCurrentMap()->getGame();
         foreach ($this->thumbnailMaps as $m)
         {
-            if ($m->uid == $map->uid)
-                return "https://mximage.yoxclan.fr/lq/{$m->prefix}/{$m->id}.jpg";
+            if ($m->MapUid == $map->uid)
+                return "https://mximage.yoxclan.fr/lq/{$prefix}/{$m->MapId}.jpg";
         }
         return "https://via.placeholder.com/400x290.jpg";
     }
