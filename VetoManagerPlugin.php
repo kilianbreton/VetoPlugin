@@ -159,6 +159,7 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
 
     //ManiaLink
     const ML_CONFIGURATOR_ID    = "VetoManager.Configurator";
+    const ML_CONFIGURATOR_ID    = "VetoManager.Configurator";
     const ML_VETOLIST_ID        = "VetoManager.List";
     const ML_VETOMINIMIZE_ID    = "VetoManager.Minimized";
     const ML_THUMNAILSGRID_ID   = "VetoManager.ThumbnailsGrid";
@@ -280,6 +281,11 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
 
 
         //Commands
+        $this->maniaControl->getCommandManager()->registerCommandListener("veto", $this, "onCommandVetoAdmin", true, "Veto Commands (admin)");
+        $this->maniaControl->getCommandManager()->registerCommandListener("veto", $this, "onCommandVeto", false, "Veto Commands (/veto help)");
+
+
+        //old commands
         $this->maniaControl->getCommandManager()->registerCommandListener("veto", $this, "onCommandVetoAdmin", true, "Veto Commands (admin)");
         $this->maniaControl->getCommandManager()->registerCommandListener("veto", $this, "onCommandVeto", false, "Veto Commands (/veto help)");
 
@@ -709,6 +715,7 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
         $data = [];
         $maps = $this->getAvailableMaps();
    
+   
         foreach ($this->vetoList as $map => $infos)
         {
             if($infos["team"] == "A")
@@ -1052,6 +1059,47 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
         }
     }
 
+
+    public function onCommandVetoAdmin(array $chatCallback, Player $player)
+    {
+        $command = $chatCallback[1][2];
+        $argArray = explode(" ", $command);
+        $this->maniaControl->log(var_export($argArray, true));
+        if(count($argArray) <= 1)
+        {
+            $this->maniaControl->getChat()->sendError("//veto command need args !", $player);
+            return;
+        }
+        switch(strtolower($argArray[1]))
+        {
+            case "start":
+                if ($this->isStandAlone)
+                    $this->startVeto($this->vetoString, $player);
+                break;
+            case "stop":
+                if ($this->isStandAlone)
+                    $this->cancelVeto("", $player);
+                break;
+            case "config":
+                $this->buildConfigManialink($player);
+                break;
+            
+        }
+        
+
+    }
+
+    public function onCommandVeto(array $chatCallback, Player $player)
+    {
+        $command = $chatCallback[1][2];
+        $argArray = explode(" ", $command);
+        if(count($argArray) == 1)
+        {
+            $this->maniaControl->getChat()->sendError("/veto command need args !", $player);
+            return;
+        }
+    }
+
     public function onCommandMultiCall(array $chatCallback, Player $player)
     {
         $this->executeAction($player, "RANDOM");
@@ -1221,6 +1269,52 @@ class VetoManagerPlugin implements CallbackListener, CommandListener, TimerListe
     //=================================================================================================================================================================
     //==[ManiaLink]====================================================================================================================================================
     //=================================================================================================================================================================
+
+
+    public function buildConfigManialink($player)
+    {
+
+        /**
+         * <?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+         * <manialink version="3">
+         *   <frame>
+         *       <quad pos="-140 80" z-index="0" size="280 160" bgcolor="FFFA" style="Bgs1" substyle="BgButtonOff"/>
+         * 	     <quad pos="-138 78" z-index="1" size="57 155" bgcolor="FFFA" style="Bgs1" substyle="BgWindow1"/>
+         *	     <quad pos="-137 77" z-index="2" size="55 12" bgcolor="00FFFFAA" style="Bgs1" substyle="BgTitle" modulatecolor="00FFFFFF"/>
+         *	     <label pos="-110 71" z-index="3" size="53 11" text="Main" halign="center" valign="center"/>
+         *	     <quad pos="-137 64" z-index="2" size="55 12" bgcolor="00FFFFAA" style="Bgs1" substyle="BgCardList" modulatecolor="00FFFFFF"/>
+         *	     <label pos="-110 58.5" z-index="3" size="55 11" text="User Interface" halign="center" valign="center"/>
+         *     </frame>
+         *   </manialink>
+         */
+        $manialink = new ManiaLink(self::ML_CONFIGURATOR_ID);
+
+        $frame = new Frame();
+        $manialink->addChild($frame);
+        $frame->setPosition(0, 0, ManialinkManager::MAIN_MANIALINK_Z_VALUE + 1);
+        $frame->setAlign("left", "top");
+
+        $backgroundQuad = new Quad();
+        $frame->addChild($backgroundQuad);
+        $backgroundQuad->setSize(130, 150);
+        $backgroundQuad->setStyles("Bgs1", "BgButtonOff");
+        $backgroundQuad->setPosition(-100, 70);
+        $backgroundQuad->setAlign("left", "top");
+        $backgroundQuad->setZ(ManialinkManager::MAIN_MANIALINK_Z_VALUE + 1);
+
+        $backgroundQuad = new Quad();
+        $frame->addChild($backgroundQuad);
+        $backgroundQuad->setSize(40, 96);
+        $backgroundQuad->setStyles("Bgs1", "BgWindow1");
+        $backgroundQuad->setPosition(-98, 68);
+        $backgroundQuad->setAlign("left", "top");
+        $backgroundQuad->setZ(ManialinkManager::MAIN_MANIALINK_Z_VALUE + 1);
+
+
+       
+        $this->maniaControl->getManialinkManager()->sendManialink($manialink, $player);
+        
+    }
 
 
     public function buildConfigManialink($player)

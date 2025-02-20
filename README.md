@@ -41,15 +41,28 @@ Register callback :
 
 ```php
 if($this->maniaControl->getPluginManager()->isPluginActive(self::VETO_PLUGIN))
-    $this->maniaControl->getPluginManager()->getPlugin(self::VETO_PLUGIN)->registerOnVetoFinishedCallBack($this, "myCallbackMethod");
+    $this->maniaControl->getPluginManager()->getPlugin(self::VETO_PLUGIN)->registerOnVetoFinishedCallBack($this, "onVetoFinished");
+
+if($this->maniaControl->getPluginManager()->isPluginActive(self::VETO_PLUGIN))
+    $this->maniaControl->getPluginManager()->getPlugin(self::VETO_PLUGIN)->registerCheckMasterPluginAllowToStart($this, "allowVeto");
+
 
 
 //....
 
-public function myCallbackMethod($json)
+public function onVetoFinished($json)
 {
     var_dump($json);
-    //...
+}
+
+public function allowVeto()
+{
+    if($someting)
+       Logger::log("Allowed");
+    else
+       Logger::log("Not allowed");
+
+   return $something; //(bool)
 }
 
 ```
